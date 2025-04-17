@@ -162,7 +162,7 @@ function animate_pendulum(sol, params)
     fig1 = Figure(size=(800, 800), fontsize=12)
     ax = fig1[1, 1] = Axis3(fig1, 
                          xlabel = "x", ylabel = "y", zlabel = "z",
-                         limits = (-3*params.l, 3*params.l, -3*params.l, 3*params.l, -3*params.l, 3*params.l),
+                         limits = (-5*params.l, 5*params.l, -5*params.l, 5*params.l, -5*params.l, 5*params.l),
                          aspect = :data)
     
     # Get initial state
@@ -305,7 +305,7 @@ function animate_pendulum(sol, params)
                 push!(z_height, z)
                 
                 # Keep trajectories a reasonable length and ensure all arrays have same length
-                max_points = 200
+                max_points = length(sol.u)
                 
                 if length(rocket_x) > max_points
                     # Calculate minimum length to ensure all arrays have same size
@@ -334,36 +334,22 @@ function animate_pendulum(sol, params)
                     time_array = time_array[end-min_length+1:end]
                     z_height = z_height[end-min_length+1:end]
                 end
-                
+
                 # Update trajectory and phase plots
-                # Only if arrays are non-empty and all same length
-                if !isempty(rocket_x) && all(length.([rocket_x, rocket_y, rocket_z]) .== length(rocket_x))
-                    rocket_traj[1] = rocket_x
-                    rocket_traj[2] = rocket_y
-                    rocket_traj[3] = rocket_z
-                end
+                rocket_traj[1] = rocket_x
+                rocket_traj[2] = rocket_y
+                rocket_traj[3] = rocket_z
+                pendulum_traj[1] = pendulum_x
+                pendulum_traj[2] = pendulum_y
+                pendulum_traj[3] = pendulum_z
                 
-                if !isempty(pendulum_x) && all(length.([pendulum_x, pendulum_y, pendulum_z]) .== length(pendulum_x))
-                    pendulum_traj[1] = pendulum_x
-                    pendulum_traj[2] = pendulum_y
-                    pendulum_traj[3] = pendulum_z
-                end
-                
-                if !isempty(theta) && length(theta) == length(thetadot)
-                    theta_line[1] = theta
-                    theta_line[2] = thetadot
-                end
-                
-                if !isempty(phi) && length(phi) == length(phidot)
-                    phi_line[1] = phi
-                    phi_line[2] = phidot
-                end
-                
-                if !isempty(time_array) && length(time_array) == length(z_height)
-                    z_line[1] = time_array
-                    z_line[2] = z_height
-                end
-                
+                theta_line[1] = theta
+                theta_line[2] = thetadot
+                phi_line[1] = phi
+                phi_line[2] = phidot
+                z_line[1] = time_array
+                z_line[2] = z_height
+                                
                 sleep(dt_frame)
                 t_sim += dt_frame
             catch e
@@ -375,7 +361,7 @@ function animate_pendulum(sol, params)
         end
     end
     
-    println("3D Pendulum simulation is running with quaternion representation!")
+    println("3D Pendulum simulation is running!")
     return fig1, fig2  # Return the figures so they stay alive
 end
 
