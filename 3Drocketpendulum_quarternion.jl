@@ -1,130 +1,241 @@
-using GLMakie, Observables, DifferentialEquations, LinearAlgebra, Sundials
-using Rotations, StaticArrays, OrdinaryDiffEq
+using GLMakie, Observables, DifferentialEquations, LinearAlgebra, Sundials, OrdinaryDiffEq
 
 # ----------------------------- System Parameters -----------------------------
 struct Parameters
-    mpivot::Float64       # pivot (rocket) mass
-    mp::Float64           # pendulum mass
-    l::Float64            # rod length
-    g::Float64            # gravity
-    Bpivot::Float64       # pivot drag coefficient
-    Bp::Float64           # pendulum drag coefficient
-    control::Function     # (t,u) -> SVector{3}([F_x,F_y,F_z])
-    disturbance::Function # (t,u) -> SVector{3}([Dp_x,Dp_y,Dp_z])
+    mpivot::Float64    # pivot (rocket) mass
+    mp::Float64        # pendulum mass
+    l::Float64         # rod length
+    g::Float64         # gravitational acceleration
+    Bpivot::Float64    # pivot drag coefficient (½ρC_dA)
+    Bp::Float64        # pendulum drag coefficient (½ρC_dA)
+    control::Function  # (t,u) -> [Fx, Fy, Fz]
+    disturbance::Function  # (t,u) -> [Dp_x, Dp_y, Dp_z]
 end
 
-# zero‑input placeholders
-zero_ctrl(t,u) = zero(SVector{3,eltype(u)})
-zero_dist(t,u) = zero(SVector{3,eltype(u)})
+# Zero-control and zero-disturbance functions for now
+zero_ctrl(t, u) = zeros(3)
+zero_disturbance(t, u) = zeros(3)
 
+# Instantiate parameters
 params = Parameters(
     5.0,    # mpivot
     5.0,    # mp
-    1.0,    # l
+    1.0,    # ℓ
     9.81,   # g
-    0.1,    # Bpivot
-    0.1,    # Bp
+    1.0,    # Bpivot
+    1.0,    # Bp
     zero_ctrl,
-    zero_dist
+    zero_disturbance
 )
 
-# ----------------------------- Dynamics Function -----------------------------
-function pendulum_quat!(du, u, p::Parameters, t)
-    # State: [ x, y, z,
-    #          q0, q1, q2, q3,
-    #          x_dot, y_dot, z_dot,
-    #          omega_x, omega_y, omega_z ]
-    x, y, z,
-    q0, q1, q2, q3,
-    x_dot, y_dot, z_dot,
-    omega_x, omega_y, omega_z = u
-
-    # Reconstruct quaternion and rod direction
-    q = UnitQuaternion(q0, q1, q2, q3)
-    n = q * Vec(0.0, 0.0, 1.0)    # unit‐vector along the rod
-
-    # Bob position
-    bob_x = x + p.l * n[1]
-    bob_y = y + p.l * n[2]
-    bob_z = z + p.l * n[3]
-
-    # External inputs
-    F   = p.control(t, u)       # SVector{3}
-    Dp  = p.disturbance(t, u)   # SVector{3}
-
-    # Bob velocity (translational + rotation)
-    vp_x = x_dot + p.l*(omega_y*n[3] - omega_z*n[2])
-    vp_y = y_dot + p.l*(omega_z*n[1] - omega_x*n[3])
-    vp_z = z_dot + p.l*(omega_x*n[2] - omega_y*n[1])
-    drag_bob = p.Bp * SVector(vp_x^2, vp_y^2, vp_z^2)
-
-    # Pivot drag
-    drag_pivot = p.Bpivot * SVector(x_dot^2, y_dot^2, z_dot^2)
-
-    # -- Translational dynamics: M * accel = B --
-    M_trans = (p.mpivot + p.mp) * I(3)
-    B_trans = F .- drag_bob .- Dp .- SVector(0.0,0.0,(p.mpivot+p.mp)*p.g)
-    accel_trans = M_trans \ B_trans
-    x_ddot, y_ddot, z_ddot = accel_trans
-
-    # -- Rotational dynamics about pivot --
-    # Torque from bob forces about pivot
-    lever = p.l * n
-    tau = cross(lever, F .- Dp .- drag_bob)
-
-    # Moment of inertia (point mass at distance l)
-    I_theta = p.mp * p.l^2
-    omega_dot = tau / I_theta
-    omega_dot_x, omega_dot_y, omega_dot_z = omega_dot
-
-    # -- Quaternion kinematics --
-    # q_dot = ½ * Ω(omega) * q_vec
-    Omega = @SMatrix [
-         0.0      -omega_x   -omega_y   -omega_z;
-      omega_x       0.0       omega_z   -omega_y;
-      omega_y    -omega_z       0.0      omega_x;
-      omega_z     omega_y     -omega_x      0.0
-    ]
-    q_vec = SVector(q0, q1, q2, q3)
-    q_dot_vec = 0.5 * Omega * q_vec
-    q0_dot, q1_dot, q2_dot, q3_dot = q_dot_vec
-
-    # -- Pack derivatives --
-    du[1]  = x_dot
-    du[2]  = y_dot
-    du[3]  = z_dot
-    du[4]  = q0_dot
-    du[5]  = q1_dot
-    du[6]  = q2_dot
-    du[7]  = q3_dot
-    du[8]  = x_ddot
-    du[9]  = y_ddot
-    du[10] = z_ddot
-    du[11] = omega_dot_x
-    du[12] = omega_dot_y
-    du[13] = omega_dot_z
+# ----------------------------- Quaternion Utilities -----------------------------
+# Convert Euler angles (θ, φ) to quaternion [qw, qx, qy, qz]
+function euler_to_quaternion(θ, φ)
+    # For 3D pendulum: φ is polar angle from z, θ is azimuthal angle in xy-plane
+    # Rotation around z-axis by θ, then around the new y-axis by φ
+    
+    # Calculate half-angles
+    θ_2 = θ/2
+    φ_2 = φ/2
+    
+    # Calculate quaternion components
+    qw = cos(φ_2) * cos(θ_2)
+    qx = sin(φ_2) * cos(θ_2)
+    qy = sin(φ_2) * sin(θ_2)
+    qz = cos(φ_2) * sin(θ_2)
+    
+    return [qw, qx, qy, qz]
 end
 
-# ----------------------- Set up & Solve ODE -------------------------
-# Initial: upright quaternion [1,0,0,0], zero ang. vel.
-u0 = [
-    0.0,  0.0,  0.0,       # x,y,z
-    1.0,  0.0,  0.0,  0.0, # q0,q1,q2,q3
-    0.0,  0.0,  0.0,       # x_dot,y_dot,z_dot
-    0.0,  0.0,  0.0        # omega_x,omega_y,omega_z
-]
-tspan = (0.0, 30.0)
-prob = ODEProblem(pendulum_quat!, u0, tspan, params)
+# Convert quaternion to direction vector (unit vector along pendulum)
+function quaternion_to_direction(q)
+    qw, qx, qy, qz = q
+    
+    # Transform unit z-vector using quaternion rotation
+    # This gives us the direction the pendulum is pointing
+    dir_x = 2.0 * (qx*qz + qw*qy)
+    dir_y = 2.0 * (qy*qz - qw*qx)
+    dir_z = 1.0 - 2.0 * (qx*qx + qy*qy)
+    
+    return [dir_x, dir_y, dir_z]
+end
 
-# Use a stiff method
-sol = solve(prob, QNDF(), abstol=1e-6, reltol=1e-6)
+# Function to normalize a quaternion
+function normalize_quaternion(q)
+    norm = sqrt(sum(q.^2))
+    return q ./ norm
+end
 
-println("Solution length: ", length(sol.u))
+# ----------------------------- Dynamics Function -----------------------------
+function pendulum_quaternion!(du, u, p, t)
+    # Unpack state: [x, y, z, qw, qx, qy, qz, x_dot, y_dot, z_dot, ω_x, ω_y, ω_z]
+    # where q is quaternion, ω is angular velocity in body frame
+    x, y, z = u[1:3]
+    q = u[4:7]
+    x_dot, y_dot, z_dot = u[8:10]
+    ω = u[11:13]  # angular velocity in body frame
+    
+    # Normalize quaternion to prevent drift
+    q = normalize_quaternion(q)
+    
+    # Get the direction of the pendulum (unit vector)
+    dir = quaternion_to_direction(q)
+    
+    # Calculate pendulum endpoint position
+    xp = x + p.l * dir[1]
+    yp = y + p.l * dir[2]
+    zp = z + p.l * dir[3]
+    
+    # Calculate pendulum velocity (analytical from position and angular velocity)
+    # Cross product of angular velocity with pendulum vector gives tangential velocity
+    ω_cross_dir = [
+        ω[2]*dir[3] - ω[3]*dir[2],
+        ω[3]*dir[1] - ω[1]*dir[3],
+        ω[1]*dir[2] - ω[2]*dir[1]
+    ]
+    
+    xp_dot = x_dot + p.l * ω_cross_dir[1]
+    yp_dot = y_dot + p.l * ω_cross_dir[2]
+    zp_dot = z_dot + p.l * ω_cross_dir[3]
+    
+    # External inputs (Control and Disturbance)
+    # Adapt state vector for compatibility with control functions
+    u_adapted = [x, y, z, 0, 0, x_dot, y_dot, z_dot, 0, 0]  # Placeholder for θ, φ
+    F = p.control(t, u_adapted)
+    Dp = p.disturbance(t, u_adapted)
+    
+    # Drag (nonlinear damping ∝ v^2)
+    drag_pend = p.Bp * [
+        sign(xp_dot) * xp_dot^2,
+        sign(yp_dot) * yp_dot^2,
+        sign(zp_dot) * zp_dot^2
+    ]
+    
+    drag_pivot = p.Bpivot * [
+        sign(x_dot) * x_dot^2,
+        sign(y_dot) * y_dot^2,
+        sign(z_dot) * z_dot^2
+    ]
+    
+    # Build the translational equations (for pivot)
+    # F = ma + drag + reaction_force
+    m_total = p.mpivot + p.mp
+    
+    # Calculate reaction force from pendulum (through rod tension)
+    # This involves the centripetal acceleration and gravity components
+    centripetal_accel = [
+        p.l * (ω[2]^2 + ω[3]^2) * dir[1] - p.l * ω[1] * (ω[2]*dir[2] + ω[3]*dir[3]),
+        p.l * (ω[1]^2 + ω[3]^2) * dir[2] - p.l * ω[2] * (ω[1]*dir[1] + ω[3]*dir[3]),
+        p.l * (ω[1]^2 + ω[2]^2) * dir[3] - p.l * ω[3] * (ω[1]*dir[1] + ω[2]*dir[2])
+    ]
+    
+    # Solve for translational accelerations
+    pivot_accel = [
+        (F[1] - drag_pivot[1] - drag_pend[1] + p.mp * centripetal_accel[1]) / m_total,
+        (F[2] - drag_pivot[2] - drag_pend[2] + p.mp * centripetal_accel[2]) / m_total,
+        (F[3] - drag_pivot[3] - drag_pend[3] + p.mp * centripetal_accel[3] - m_total * p.g) / m_total
+    ]
+    
+    # Calculate torque on pendulum (cross product of position vector and force)
+    gravity_force = [0, 0, -p.mp * p.g]
+    r_vec = p.l .* dir  # position vector from pivot to pendulum mass
+    
+    # Torque = r × F for gravity and drag forces
+    gravity_torque = [
+        r_vec[2]*gravity_force[3] - r_vec[3]*gravity_force[2],
+        r_vec[3]*gravity_force[1] - r_vec[1]*gravity_force[3],
+        r_vec[1]*gravity_force[2] - r_vec[2]*gravity_force[1]
+    ]
+    
+    drag_torque = [
+        r_vec[2]*drag_pend[3] - r_vec[3]*drag_pend[2],
+        r_vec[3]*drag_pend[1] - r_vec[1]*drag_pend[3],
+        r_vec[1]*drag_pend[2] - r_vec[2]*drag_pend[1]
+    ]
+    
+    # Calculate angular acceleration from torque
+    # For a simple pendulum with mass at the end of a rod, inertia tensor is:
+    # I = mp * l² * (identity_matrix - direction_outer_product)
+    inertia_tensor = p.mp * p.l^2 * (Matrix{Float64}(I, 3, 3) - dir * dir')
+    
+    # Add a small regularization to ensure invertibility
+    inertia_tensor += 1e-6 * Matrix{Float64}(I, 3, 3)
+    
+    # Calculate angular acceleration: α = I⁻¹ * (τ - ω × (I·ω))
+    angular_momentum = inertia_tensor * ω
+    gyroscopic_torque = [
+        ω[2]*angular_momentum[3] - ω[3]*angular_momentum[2],
+        ω[3]*angular_momentum[1] - ω[1]*angular_momentum[3],
+        ω[1]*angular_momentum[2] - ω[2]*angular_momentum[1]
+    ]
+    
+    total_torque = gravity_torque - drag_torque - gyroscopic_torque
+    angular_accel = inertia_tensor \ total_torque
+    
+    # Quaternion derivative from angular velocity
+    q_dot = 0.5 * [
+        -q[2]*ω[1] - q[3]*ω[2] - q[4]*ω[3],
+         q[1]*ω[1] + q[3]*ω[3] - q[4]*ω[2],
+         q[1]*ω[2] - q[2]*ω[3] + q[4]*ω[1],
+         q[1]*ω[3] + q[2]*ω[2] - q[3]*ω[1]
+    ]
+    
+    # Update the state derivative vector
+    # Position derivatives (velocities)
+    du[1:3] = [x_dot, y_dot, z_dot]
+    
+    # Quaternion derivatives
+    du[4:7] = q_dot
+    
+    # Velocity derivatives (accelerations)
+    du[8:10] = pivot_accel
+    
+    # Angular velocity derivatives (angular accelerations)
+    du[11:13] = angular_accel
+end
+
+# ----------------------------- Set up & Solve ODE Problem -----------------------------
+# Convert initial spherical coordinates to quaternion
+θ_init = 0.1
+φ_init = 0.3
+q_init = euler_to_quaternion(θ_init, φ_init)
+
+# Initial condition: [x, y, z, qw, qx, qy, qz, x_dot, y_dot, z_dot, ω_x, ω_y, ω_z]
+z0 = [0.0, 0.0, 0.0, q_init..., 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+tspan = (0.0, 35.0)
+
+# Solve the pendulum system
+prob = ODEProblem(pendulum_quaternion!, z0, tspan, params)
+sol = solve(prob, CVODE_BDF(), abstol=1e-8, reltol=1e-8, maxiters=1000000)
 
 # Verify the solution structure
 println("Type of sol.u: ", typeof(sol.u))
 println("Size of sol.u: ", size(sol.u))
 println("Solver status: ", sol.retcode)
+
+# ----------------------------- Post-processing -----------------------------
+# Extract positions for visualization
+num_points = min(1000, length(sol.t))
+indices = round.(Int, range(1, length(sol.t), length=num_points))
+
+# Arrays to store positions
+pivot_positions = zeros(num_points, 3)
+pendulum_positions = zeros(num_points, 3)
+
+for (i, idx) in enumerate(indices)
+    u = sol.u[idx]
+    x, y, z = u[1:3]
+    q = normalize_quaternion(u[4:7])
+    dir = quaternion_to_direction(q)
+    
+    pivot_positions[i, :] = [x, y, z]
+    pendulum_positions[i, :] = [x + params.l * dir[1], 
+                               y + params.l * dir[2], 
+                               z + params.l * dir[3]]
+end
+
+# Now you can use these positions for visualization
+println("Solution successfully processed for visualization")
 
 # ----------------------------- Create Figure + Plots -----------------------------
 # Create 3D visualization
@@ -226,10 +337,10 @@ sleep(3.0) # Gives delay to visualization
     while t_sim <= t_end && t_sim <= sol.t[end]
         try
             # Sample the solution at the current simulation timestep
-            z = sol(t_sim)
+            u = sol(t_sim)
             
             # Unpack state
-            x, y, z_height_val, θ, φ, x_dot, y_dot, z_dot, θ_dot, φ_dot = z
+            x, y, z, θ, φ, x_dot, y_dot, z_dot, θ_dot, φ_dot = u
             
             # Calculate pendulum position
             x_pend = x + params.l * sin(φ) * cos(θ)
