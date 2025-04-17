@@ -164,7 +164,7 @@ annotate!([(mid[1]+0.1u[1], mid[2]+0.1u[2], mid[3]+0.1u[3],
             text("α",14,:purple))])
 
 # quaternion label
-qstr = L"q = (q_0,q_1,q_2,q_3) = (\cos(\tfrac{\alpha}{2}),\;\sin(\tfrac{\alpha}{2})\,\mathbf{u})"
+qstr = L"q = (q_0,q_1,q_2,q_3) = (\cos(\alpha/2),\;\sin(\alpha/2)\,\mathbf{u})"
 annotate!([
   (-1.3, -1.3, 1.3,
    text(qstr, 9, halign = :left))
