@@ -1,4 +1,4 @@
-using GLMakie, Observables, DifferentialEquations, LinearAlgebra, Sundials, OrdinaryDiffEq, StaticArrays   
+using GLMakie, Observables, DifferentialEquations, LinearAlgebra, Sundials, OrdinaryDiffEq, StaticArrays
 
 # ----------------------------- System Parameters -----------------------------
 struct Parameters
@@ -168,10 +168,13 @@ function animate_pendulum(sol, params)
     # Get initial state
     u0 = sol.u[1]
     x, y, z = u0[1:3]
-    q = normalize_quaternion(SVector(u[4:7]...))
+    
+    # Convert to SVector explicitly
+    q = SVector{4, Float64}(u0[4], u0[5], u0[6], u0[7])
+    q = normalize_quaternion(q)
     
     # Get direction vector from quaternion
-    dir = quaternion_to_direction(SVector(q...))
+    dir = quaternion_to_direction(q)
     
     # Calculate pendulum position
     x_pend = x + params.l * dir[1]
@@ -184,7 +187,7 @@ function animate_pendulum(sol, params)
     pendulum_plot = meshscatter!(ax, [x_pend], [y_pend], [z_pend], markersize = 0.15, color = :blue)
     
     # Add quaternion visualization text
-    quat_text = text!(ax, ["q = [" * join(round.(q, digits=3), ", ") * "]"],
+    quat_text = text!(ax, ["q = [" * join(round.([q[1], q[2], q[3], q[4]], digits=3), ", ") * "]"],
                     position = [(-2.5*params.l, -2.5*params.l, -2.5*params.l)],
                     color = :black, fontsize = 14)
     
@@ -250,9 +253,13 @@ function animate_pendulum(sol, params)
                 
                 # Extract state components
                 x, y, z = u[1:3]
-                q = normalize_quaternion(u[4:7])
+                
+                # Convert to SVector explicitly for quaternion
+                q = SVector{4, Float64}(u[4], u[5], u[6], u[7])
+                q = normalize_quaternion(q)
+                
                 x_dot, y_dot, z_dot = u[8:10]
-                ω = u[11:13]
+                ω = SVector{3, Float64}(u[11], u[12], u[13])
                 
                 # Get direction vector from quaternion
                 dir = quaternion_to_direction(q)
@@ -279,7 +286,7 @@ function animate_pendulum(sol, params)
                 pendulum_plot[3] = [z_pend]
                 
                 # Update quaternion text display
-                quat_text[1] = ["q = [" * join(round.(q, digits=3), ", ") * "]"]
+                quat_text[1] = ["q = [" * join(round.([q[1], q[2], q[3], q[4]], digits=3), ", ") * "]"]
                 
                 # Store trajectory data
                 push!(rocket_x, x)
@@ -297,43 +304,72 @@ function animate_pendulum(sol, params)
                 push!(time_array, t_sim)
                 push!(z_height, z)
                 
-                # Keep trajectories a reasonable length
+                # Keep trajectories a reasonable length and ensure all arrays have same length
                 max_points = 200
+                
                 if length(rocket_x) > max_points
-                    rocket_x = rocket_x[end-max_points+1:end]
-                    rocket_y = rocket_y[end-max_points+1:end]
-                    rocket_z = rocket_z[end-max_points+1:end]
-                    pendulum_x = pendulum_x[end-max_points+1:end]
-                    pendulum_y = pendulum_y[end-max_points+1:end]
-                    pendulum_z = pendulum_z[end-max_points+1:end]
-                    theta = theta[end-max_points+1:end]
-                    thetadot = thetadot[end-max_points+1:end]
-                    phi = phi[end-max_points+1:end]
-                    phidot = phidot[end-max_points+1:end]
-                    time_array = time_array[end-max_points+1:end]
-                    z_height = z_height[end-max_points+1:end]
+                    # Calculate minimum length to ensure all arrays have same size
+                    min_length = min(
+                        length(rocket_x), length(rocket_y), length(rocket_z),
+                        length(pendulum_x), length(pendulum_y), length(pendulum_z),
+                        length(theta), length(thetadot),
+                        length(phi), length(phidot),
+                        length(time_array), length(z_height)
+                    )
+                    
+                    # Ensure min_length doesn't exceed max_points
+                    min_length = min(min_length, max_points)
+                    
+                    # Trim all arrays to the same length
+                    rocket_x = rocket_x[end-min_length+1:end]
+                    rocket_y = rocket_y[end-min_length+1:end]
+                    rocket_z = rocket_z[end-min_length+1:end]
+                    pendulum_x = pendulum_x[end-min_length+1:end]
+                    pendulum_y = pendulum_y[end-min_length+1:end]
+                    pendulum_z = pendulum_z[end-min_length+1:end]
+                    theta = theta[end-min_length+1:end]
+                    thetadot = thetadot[end-min_length+1:end]
+                    phi = phi[end-min_length+1:end]
+                    phidot = phidot[end-min_length+1:end]
+                    time_array = time_array[end-min_length+1:end]
+                    z_height = z_height[end-min_length+1:end]
                 end
                 
                 # Update trajectory and phase plots
-                rocket_traj[1] = rocket_x
-                rocket_traj[2] = rocket_y
-                rocket_traj[3] = rocket_z
-                pendulum_traj[1] = pendulum_x
-                pendulum_traj[2] = pendulum_y
-                pendulum_traj[3] = pendulum_z
+                # Only if arrays are non-empty and all same length
+                if !isempty(rocket_x) && all(length.([rocket_x, rocket_y, rocket_z]) .== length(rocket_x))
+                    rocket_traj[1] = rocket_x
+                    rocket_traj[2] = rocket_y
+                    rocket_traj[3] = rocket_z
+                end
                 
-                theta_line[1] = theta
-                theta_line[2] = thetadot
-                phi_line[1] = phi
-                phi_line[2] = phidot
-                z_line[1] = time_array
-                z_line[2] = z_height
+                if !isempty(pendulum_x) && all(length.([pendulum_x, pendulum_y, pendulum_z]) .== length(pendulum_x))
+                    pendulum_traj[1] = pendulum_x
+                    pendulum_traj[2] = pendulum_y
+                    pendulum_traj[3] = pendulum_z
+                end
+                
+                if !isempty(theta) && length(theta) == length(thetadot)
+                    theta_line[1] = theta
+                    theta_line[2] = thetadot
+                end
+                
+                if !isempty(phi) && length(phi) == length(phidot)
+                    phi_line[1] = phi
+                    phi_line[2] = phidot
+                end
+                
+                if !isempty(time_array) && length(time_array) == length(z_height)
+                    z_line[1] = time_array
+                    z_line[2] = z_height
+                end
                 
                 sleep(dt_frame)
                 t_sim += dt_frame
             catch e
                 println("Error at t=$t_sim: $e")
                 println("Error type: ", typeof(e))
+                println("Full error: ", sprint(showerror, e))
                 break
             end
         end
