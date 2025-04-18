@@ -150,25 +150,32 @@ scatter!([tip_r[1]], [tip_r[2]], [tip_r[3]], markersize=12, color=:red, alpha=0.
 
 # Rotation axis + angle arc + quaternion text
 plot!([-u[1], u[1]], [-u[2], u[2]], [-u[3], u[3]], lw=3, color=:blue)
-annotate!([(u[1]*1.1, u[2]*1.1, u[3]*1.1, text("axis",10,:blue))])
+annotate!([(u[1]*1.1, u[2]*1.1, u[3]*1.1, text("\$Rotation  Axis\$",10,:blue))])
 
 # arc
-Ns = nullspace(u')       
-w1 = normalize(Ns[:,1])
-w2 = cross(u, w1)
-ts = range(0,stop=alpha,length=60)
-arc = hcat([cos(t)*w1 .+ sin(t)*w2 for t in ts]...)
-plot!(arc[1,:], arc[2,:], arc[3,:]; lw=2, color=:purple)
-mid = arc[:,Int(end/2)]
-annotate!([(mid[1]+0.1u[1], mid[2]+0.1u[2], mid[3]+0.1u[3],
-            text("α",14,:purple))])
+dir0 = tip .- (dot(tip,u))*u
+w1 = normalize(dir0)            
+w2 = cross(u, w1)               
+arc_radius = 0.85
+arc_offset = 0.2
+npts = 101              
+ts = range(0, stop=alpha, length=npts)
+arc_pts = [ arc_offset*u .+ arc_radius*(cos(t)*w1 .+ sin(t)*w2) for t in ts]
+arc = hcat(arc_pts...)
+plot!(arc[1,:], arc[2,:], arc[3,:], lw = 3, color = :purple, clip = false)
+mid_idx = (npts+1) ÷ 2
+mid_pt  = arc_pts[mid_idx]
+lbl_off = 0.1*(cos(alpha/2)*w1 .+ sin(alpha/2)*w2)
+lbl_pos = mid_pt .+ lbl_off
+annotate!([(lbl_pos[1], lbl_pos[2], lbl_pos[3]-0.05,text(L"\alpha", 14, :purple))])
+
+# rotation axis label
+rotation = L"\mathbf{u} = (u_1, u_2, u_3)"
+annotate!([(-1.65, -1.65, 1.45, text(rotation, 12, halign = :left))])
 
 # quaternion label
 qstr = L"q = (q_0,q_1,q_2,q_3) = (\cos(\alpha/2),\;\sin(\alpha/2)\,\mathbf{u})"
-annotate!([
-  (-1.3, -1.3, 1.3,
-   text(qstr, 9, halign = :left))
-])
+annotate!([(-1.65, -1.65, 1.3, text(qstr, 12, halign = :left))])
 
 # — Display —
 display(p)
