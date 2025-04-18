@@ -174,3 +174,44 @@ annotate!([(-1.65, -1.65, 1.3, text(qstr, 12, halign = :left))])
 
 # Display the plot
 display(p)
+
+
+
+using Plots
+
+# Create a figure with a clean look
+p = plot(
+    framestyle = :box,     # Simple box frame
+    grid = false,          # Remove background grid
+    showaxis = true,       # Show axes
+    legend = false,        # No legend
+    fontfamily = "Computer Modern"  # Clean font
+)
+
+# Create two separate ranges to capture behavior around zero
+x_neg = -2.0:0.00001:-0.01  # Negative values approaching zero
+x_pos = 0.01:0.00001:2.0    # Positive values starting close to zero
+
+# Plot 1/x for both ranges to show the discontinuity
+plot!(p, x_neg, 1 ./ x_neg, color=:blue, linewidth=2)
+plot!(p, x_pos, 1 ./ x_pos, color=:blue, linewidth=2)
+
+# Add a horizontal line at y=0 for reference
+hline!(p, [0], color=:black, linewidth=1, linestyle=:dash)
+
+# Add a vertical line at x=0 to emphasize the discontinuity
+vline!(p, [0], color=:black, linewidth=1, linestyle=:dash)
+
+# Set x and y axis ranges to focus on the behavior near zero
+xlims!(-2, 2)
+ylims!(-20, 20)
+
+# Add axis labels
+xlabel!("x")
+ylabel!("1/x")
+
+# Display the plot
+display(p)
+
+# Save the plot if needed
+# savefig("one_over_x.png")
