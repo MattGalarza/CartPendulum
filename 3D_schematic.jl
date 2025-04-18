@@ -137,10 +137,7 @@ annotate!([(1.7,0,0,text("\$x\$",12)),
 plot!([0, tip[1]], [0, tip[2]], [0, tip[3]], lw=4, color=:black)
 scatter!([pivot[1]], [pivot[2]], [pivot[3]], markersize=15, color=:blue)
 scatter!([tip[1]], [tip[2]], [tip[3]], markersize=12, color=:red)
-annotate!([
-  (0.65, -0.4, -0.05, text("\$m_{pivot}\$",13)),
-  (tip[1]+0.15, tip[2]+0.15, tip[3], text("\$m_p\$",13))
-])
+annotate!([(0.55, -0.3, -0.0125, text("\$m_{pivot}\$",13)),(tip[1]+0.15, tip[2]+0.15, tip[3], text("\$m_p\$",13))])
 
 # Rotated pendulum (dashed + lighter)
 # rod
@@ -168,14 +165,12 @@ mid_pt  = arc_pts[mid_idx]
 lbl_off = 0.1*(cos(alpha/2)*w1 .+ sin(alpha/2)*w2)
 lbl_pos = mid_pt .+ lbl_off
 annotate!([(lbl_pos[1], lbl_pos[2], lbl_pos[3]-0.05,text(L"\alpha", 14, :purple))])
-
 # rotation axis label
 rotation = L"\mathbf{u} = (u_1, u_2, u_3)"
 annotate!([(-1.65, -1.65, 1.45, text(rotation, 12, halign = :left))])
-
 # quaternion label
 qstr = L"q = (q_0,q_1,q_2,q_3) = (\cos(\alpha/2),\;\sin(\alpha/2)\,\mathbf{u})"
 annotate!([(-1.65, -1.65, 1.3, text(qstr, 12, halign = :left))])
 
-# — Display —
+# Display the plot
 display(p)
