@@ -1178,7 +1178,7 @@ params = Parameters(
     5.0,    # Bp
     1.5,    # Brot
     120.0,  # Kp
-    0.0,    # Ki
+    1.0,    # Ki
     40.0,   # Kd
     zero_disturbance
 )
@@ -1213,7 +1213,7 @@ function quaternion_to_angles(q::SVector{4,Float64}, ω::AbstractVector)
     return θ, φ, θ_dot, φ_dot
 end
 
-# ----------------------------- Dynamics + Energy-Based Control -----------------------------
+# ----------------------------- Dynamics + Energy-Based Control ------------------
 const ε = 1e-10  # regularization floor
 
 function pendulum_quaternion!(du, u, p, t)
@@ -1301,8 +1301,8 @@ function pendulum_quaternion!(du, u, p, t)
     
     # ---------- Combine control strategies ----------
     # Weights for blending control approaches
-    w_pid = 0.7    # Weight for PID control
-    w_energy = 0.3 # Weight for energy control
+    w_pid = 1.0    # Weight for PID control
+    w_energy = 0.0 # Weight for energy control
     
     # Combined control forces
     Fx = w_pid * Fx_pid + w_energy * Fx_energy
@@ -1394,7 +1394,20 @@ function renormalize_q!(integrator)
 end
 
 # Apply callback for quaternion normalization
-cb = DiscreteCallback((u,t,integrator) -> true, renormalize_q!)
+#cb = DiscreteCallback((u,t,integrator) -> true, renormalize_q!)
+
+# Create a callback that normalizes approximately every 0.1 time units
+time_interval = 0.00001
+last_callback_time = Ref(-time_interval)  # Reference to store the last time
+
+condition = function(u, t, integrator)
+    if t - last_callback_time[] >= time_interval
+        last_callback_time[] = t
+        return true
+    end
+    return false
+end
+cb = DiscreteCallback(condition, renormalize_q!)
 
 # ----------------------------- Set up & Solve ODE Problem -----------------------------
 # Convert initial spherical coordinates to quaternion - start almost vertical
@@ -1406,7 +1419,7 @@ tspan = (0.0, 15.0)
 
 # ----------------------------- Run Simulation -----------------------------
 prob = ODEProblem(pendulum_quaternion!, z0, tspan, params)
-sol = solve(prob, CVODE_BDF(), abstol=1e-6, reltol=1e-6, maxiters=10^6, 
+sol = solve(prob, CVODE_BDF(), abstol=1e-6, reltol=1e-6, maxiters=10^6,
             callback=cb, saveat=0.05, dtmax=0.1)
 
 println("Type of sol.u: ", typeof(sol.u))
@@ -1582,7 +1595,7 @@ end
 print_error_statistics_with_energy(sol)
 
 # Uncomment to visualize
-fig = visualize_pendulum(sol)
+fig = visualize_pendulum_with_energy(sol)
 display(fig)
 
 function animate_pendulum2(sol, params)
