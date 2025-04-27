@@ -1398,16 +1398,16 @@ cb = DiscreteCallback((u,t,integrator) -> true, renormalize_q!)
 
 # ----------------------------- Set up & Solve ODE Problem -----------------------------
 # Convert initial spherical coordinates to quaternion - start almost vertical
-q0 = euler_to_quaternion(0.1, 0.1) 
+q0 = euler_to_quaternion(0.01, 0.01) 
 
 # Initial condition with zero initial velocities
 z0 = vcat([0.0, 0.0, 0.0], q0, [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0])
-tspan = (0.0, 25.0)
+tspan = (0.0, 15.0)
 
 # ----------------------------- Run Simulation -----------------------------
 prob = ODEProblem(pendulum_quaternion!, z0, tspan, params)
-sol = solve(prob, CVODE_BDF(), abstol=1e-10, reltol=1e-10, maxiters=10^6, 
-            callback=cb, saveat=0.01, dtmax=0.01)
+sol = solve(prob, CVODE_BDF(), abstol=1e-6, reltol=1e-6, maxiters=10^6, 
+            callback=cb, saveat=0.05, dtmax=0.1)
 
 println("Type of sol.u: ", typeof(sol.u))
 println("Size of sol.u: ", size(sol.u))
